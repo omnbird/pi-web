@@ -29,6 +29,12 @@ import {
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import {
+  MAX_UPLOAD_FILE_BYTES,
+  MAX_UPLOAD_REQUEST_BYTES,
+  MAX_UPLOAD_TOTAL_BYTES,
+  formatUploadSize,
+} from "@/lib/upload-limits";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { hasParentDirectorySegment } from "@/lib/path-security";
 import { readTextPreviewChunk } from "@/lib/text-preview";
@@ -36,10 +42,6 @@ import { readTextPreviewChunk } from "@/lib/text-preview";
 const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
-const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
-const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
-// Multipart boundaries and headers are not file bytes, but must be bounded too.
-const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
 
 // The source view highlights every language here but text, pdf and word with
 // the Prism grammar of that name (refractor/all); a name it lacks renders
@@ -193,16 +195,25 @@ export async function POST(
       formData = await parseFormDataWithinLimit(request, MAX_UPLOAD_REQUEST_BYTES);
     } catch (error) {
       if (error instanceof RequestBodyTooLargeError) {
-        return NextResponse.json({ error: "Uploads must total 100MB or less" }, { status: 413 });
+        return NextResponse.json(
+          { error: `Uploads must total ${formatUploadSize(MAX_UPLOAD_TOTAL_BYTES)} or less` },
+          { status: 413 },
+        );
       }
       throw error;
     }
     const files = formData.getAll("files").filter((entry): entry is File => typeof entry !== "string");
     if (files.some((file) => file.size > MAX_UPLOAD_FILE_BYTES)) {
-      return NextResponse.json({ error: "Each upload must be 25MB or smaller" }, { status: 413 });
+      return NextResponse.json(
+        { error: `Each upload must be ${formatUploadSize(MAX_UPLOAD_FILE_BYTES)} or smaller` },
+        { status: 413 },
+      );
     }
     if (files.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_TOTAL_BYTES) {
-      return NextResponse.json({ error: "Uploads must total 100MB or less" }, { status: 413 });
+      return NextResponse.json(
+        { error: `Uploads must total ${formatUploadSize(MAX_UPLOAD_TOTAL_BYTES)} or less` },
+        { status: 413 },
+      );
     }
     const fileNames = files.map((file) => file.name);
     const validationError = validateUploadFileNames(fileNames);

@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { MAX_UPLOAD_REQUEST_BYTES } from "./lib/upload-limits";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
@@ -19,11 +20,13 @@ const gfmAutolinkEmailLoader = join(configDir, "lib/gfm-autolink-email-loader.cj
 const nextConfig: NextConfig = {
   outputFileTracingRoot: configDir,
   experimental: {
-    // proxy.ts matches /api/:path*, and Next buffers the request body whenever
-    // a proxy is present, capped at 10 MB by default. The upload route accepts
-    // up to 100 MB per request, so raise the buffer above that or large uploads
-    // are truncated and fail with "Failed to parse body as FormData."
-    proxyClientMaxBodySize: "128mb",
+    // proxy.ts matches /api/:path*, and Next buffers the request body whenever a
+    // proxy is present, capped at 10 MB by default, so larger multipart uploads
+    // are truncated before the route handler can read them and fail with
+    // "Failed to parse body as FormData.". Derive the buffer from the same
+    // source of truth as the /api/files upload route so the two layers stay
+    // aligned; tune both with PI_WEB_MAX_UPLOAD_MB / PI_WEB_MAX_UPLOAD_FILE_MB.
+    proxyClientMaxBodySize: MAX_UPLOAD_REQUEST_BYTES,
   },
   // next/image is only used for the static logo, so the /_next/image optimizer
   // (and its sharp/libheif attack surface, see GHSA-2xp9-vwfh-vxw4) is not needed.
